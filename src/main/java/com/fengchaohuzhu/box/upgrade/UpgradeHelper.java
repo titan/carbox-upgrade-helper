@@ -84,6 +84,12 @@ public class UpgradeHelper {
           idx.target = item;
         } else {
           item.url = tokens[0];
+          int pos = item.url.lastIndexOf("/");
+          if (pos != -1) {
+            item.filename = item.url.substring(pos + 1);
+          } else {
+            item.filename = item.url;
+          }
           idx.slices.add(item);
         }
       }
@@ -103,15 +109,8 @@ public class UpgradeHelper {
     Index idx = parseIndex(index);
     List<IndexItem> invalids = new ArrayList<IndexItem>(idx.slices.size());
     for (IndexItem item: idx.slices) {
-      int pos = item.url.lastIndexOf("/");
-      String filename = null;
-      if (pos != -1) {
-        filename = item.url.substring(pos + 1);
-      } else {
-        filename = item.url;
-      }
       try {
-        File file = new File(basedir, filename);
+        File file = new File(basedir, item.filename);
         if (!item.checksum.equalsIgnoreCase(md5(file))) {
           invalids.add(item);
         }
@@ -141,14 +140,7 @@ public class UpgradeHelper {
         File target = new File(destdir, idx.target.filename);
         fos = new FileOutputStream(target);
         for (IndexItem item: idx.slices) {
-          int pos = item.url.lastIndexOf("/");
-          String filename = null;
-          if (pos != -1) {
-            filename = item.url.substring(pos + 1);
-          } else {
-            filename = item.url;
-          }
-          File slice = new File(basedir, filename);
+          File slice = new File(basedir, item.filename);
           FileInputStream fis = new FileInputStream(slice);
           int r = 0;
           while ((r = fis.read(buf)) != -1) {

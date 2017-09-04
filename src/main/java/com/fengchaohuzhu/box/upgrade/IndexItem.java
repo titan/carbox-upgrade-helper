@@ -6,7 +6,7 @@ package com.fengchaohuzhu.box.upgrade;
 
 public class IndexItem {
   /**
-   * 切片合并后的文件名称
+   * 切片合并后的文件名称或切片文件名称
    */
   public String filename;
   /**
