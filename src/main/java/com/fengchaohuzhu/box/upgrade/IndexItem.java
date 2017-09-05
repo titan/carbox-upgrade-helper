@@ -6,14 +6,6 @@ package com.fengchaohuzhu.box.upgrade;
 
 public class IndexItem {
   /**
-   * 切片合并后的文件名称或切片文件名称
-   */
-  public String filename;
-  /**
-   * 切片下载链接
-   */
-  public String url;
-  /**
    * md5签名
    */
   public String checksum;
@@ -21,4 +13,8 @@ public class IndexItem {
    * 文件大小
    */
   public int size;
+  /**
+   * 切片地址范围
+   */
+  public Range range;
 }

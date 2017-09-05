@@ -7,10 +7,26 @@ import java.util.List;
  */
 
 public class Index {
+
   /**
-   * 切片合并后文件的索引信息
+   * 目标文件的文件名称
    */
-  public IndexItem target;
+  public String filename;
+
+  /**
+   * 目标文件的下载链接
+   */
+  public String url;
+
+  /**
+   * 基于 MD5 的文件签名
+   */
+  public String checksum;
+
+  /**
+   * 目标文件大小
+   */
+  public int size;
 
   /**
    * 切片索引条目列表

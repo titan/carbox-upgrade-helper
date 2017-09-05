@@ -2,7 +2,6 @@ package com.fengchaohuzhu.box.upgrade;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -14,10 +13,17 @@ import java.util.List;
  * <pre>
  * 使用方法：
  * <code>
- * if (UpgradeHelper.verifyIndex(index, basedir).size() == 0) {
- *   UpgradeHelper.merge(index, basedir, basedir); // merge slices
+ * Index index = UpgradeHelper.parseIndex(indexfile); // 解析索引文件
+ * List&lt;Range&gt; ranges = UpgradeHelper.verifyIndex(index, basedir); // 验证下载文件的完整性
+ *
+ * if (ranges.size() &gt; 0) {
+ *   // 文件下载失败
+ *   List&lt;Range&gt; mergedRanges = UpgradeHelper.mergeRange(ranges); // 合并无效范围
+ *   // 重新下载无效的文件范围
+ *   ...
  * } else {
- *   System.out.println("Errors in verifying downloaded slices");
+ *   // 文件下载成功
+ *   ...
  * }
  * </code>
  * </pre>
@@ -55,14 +61,15 @@ public class UpgradeHelper {
   /**
    * 解析升级索引文件内容。文件内容为多行文本格式。每一行由三个部分组成，每个部
    * 分之间用"|"进行分割。第一行是切片合并后的文件名称，签名和文件大小。之后的每
-   * 一行是切片的下载链接，签名和文件大小。
+   * 一行是切片的范围，签名和文件大小。
+   *
    * <br>
    * <br>
    * 比如(行号忽略不计)：
    * <br>
-   * 1:文件名|checksum|size<br>
-   * 2:链接1|checksum1|size1<br>
-   * 3:链接2|checksum2|size2<br>
+   * 1:文件链接|checksum|size<br>
+   * 2:起始地址1,结束地址1|checksum1|size1<br>
+   * 3:起始地址2,结束地址2|checksum2|size2<br>
    *
    * @param content 索引文件内容
    * @return 索引信息, null 表示解析错误
@@ -75,21 +82,25 @@ public class UpgradeHelper {
     for (String line: lines) {
       if (line != null && !line.equals("")) {
         String[] tokens = line.split("\\|");
-        IndexItem item = new IndexItem();
-        item.checksum = tokens[1];
-        item.size = Integer.parseInt(tokens[2]);
         if (firstLine) {
           firstLine = false;
-          item.filename = tokens[0];
-          idx.target = item;
-        } else {
-          item.url = tokens[0];
-          int pos = item.url.lastIndexOf("/");
+          idx.url = tokens[0];
+          idx.checksum = tokens[1];
+          idx.size = Integer.parseInt(tokens[2]);
+          int pos = idx.url.lastIndexOf("/");
           if (pos != -1) {
-            item.filename = item.url.substring(pos + 1);
+            idx.filename = idx.url.substring(pos + 1);
           } else {
-            item.filename = item.url;
+            idx.filename = idx.url;
           }
+        } else {
+          IndexItem item = new IndexItem();
+          item.checksum = tokens[1];
+          item.size = Integer.parseInt(tokens[2]);
+          String [] ptrs = tokens[0].split(",");
+          item.range = new Range();
+          item.range.start = Integer.parseInt(ptrs[0]);
+          item.range.stop = Integer.parseInt(ptrs[1]);
           idx.slices.add(item);
         }
       }
@@ -98,83 +109,99 @@ public class UpgradeHelper {
   }
 
   /**
-   * 验证索引文件的内容是否全部已经正确下载，返回需要重新下载的切片索引列表。如
+   * 验证索引文件的内容是否全部已经正确下载，返回需要重新下载的切片范围列表。如
    * 果所有切片完整，则返回空列表。
    *
    * @param index 索引文件
-   * @param basedir 下载切片存放的路径
-   * @return 无效切片列表
+   * @param basedir 下载文件存放的路径
+   * @return 无效切片范围列表
    */
-  public static List<IndexItem> verifyIndex(File index, File basedir) {
+  public static List<Range> verifyIndex(File index, File basedir) {
     Index idx = parseIndex(index);
-    List<IndexItem> invalids = new ArrayList<IndexItem>(idx.slices.size());
+    return verifyIndex(idx, basedir);
+  }
+
+  /**
+   * 验证索引文件的内容是否全部已经正确下载，返回需要重新下载的切片范围列表。如
+   * 果所有切片完整，则返回空列表。
+   *
+   * @param idx 解析后的 Index 对象
+   * @param basedir 下载文件存放的路径
+   * @return 无效切片范围列表
+   */
+  public static List<Range> verifyIndex(Index idx, File basedir) {
+    List<Range> invalids = new ArrayList<Range>(idx.slices.size());
+    int maxsize = 0;
     for (IndexItem item: idx.slices) {
-      try {
-        File file = new File(basedir, item.filename);
-        if (!item.checksum.equalsIgnoreCase(md5(file))) {
-          invalids.add(item);
-        }
-      } catch (Exception e) {
-        e.printStackTrace();
-        invalids.add(item);
+      if (maxsize < item.size) {
+        maxsize = item.size;
       }
+    }
+    byte [] buf = new byte[maxsize];
+    try {
+      File file = new File(basedir, idx.filename);
+      FileInputStream fis = new FileInputStream(file);
+      for (IndexItem item: idx.slices) {
+        try {
+          int r = fis.read(buf, 0, item.size);
+          if (r != -1) {
+            if (!item.checksum.equalsIgnoreCase(md5(buf, 0, r))) {
+              invalids.add(item.range);
+            }
+          } else {
+            invalids.add(item.range);
+          }
+        } catch (Exception e) {
+          invalids.add(item.range);
+          e.printStackTrace();
+        }
+      }
+    } catch (Exception e) {
+      e.printStackTrace();
     }
     return invalids;
   }
 
   /**
-   * 合并切片文件<br>
+   * 合并 Range，将多个首尾相连的 Range 合并成一个 Range
    *
-   * 注意，merge 方法不检查切片文件的完整性。
-   * @param index 索引文件
-   * @param basedir 切片文件存放路径
-   * @param destdir 合并后文件存放路径
-   * @return 合并后的文件，如果合并失败则为 null
+   * @param ranges Range 列表
+   * @return 合并后的 Range 列表
    */
-  public static File merge(File index, File basedir, File destdir) {
-    byte [] buf = new byte[1024];
-    Index idx = parseIndex(index);
-    if (idx != null && idx.target != null) {
-      FileOutputStream fos = null;
-      try {
-        File target = new File(destdir, idx.target.filename);
-        fos = new FileOutputStream(target);
-        for (IndexItem item: idx.slices) {
-          File slice = new File(basedir, item.filename);
-          FileInputStream fis = new FileInputStream(slice);
-          int r = 0;
-          while ((r = fis.read(buf)) != -1) {
-            fos.write(buf, 0, r);
-          }
-          fis.close();
-        }
-        fos.close();
-        if (idx.target.checksum.equalsIgnoreCase(md5(target))) {
-          return target;
+  public static List<Range> mergeRange(List<Range> ranges) {
+    List<Range> newranges = new ArrayList<Range>(ranges.size());
+    Range last = null;
+    for (Range range: ranges) {
+      if (last == null) {
+        last = range;
+      } else {
+        if (last.stop + 1 == range.start) {
+          // they are continued
+          last.stop = range.stop;
         } else {
-          return null;
-        }
-      } catch (Exception e) {
-        e.printStackTrace();
-        return null;
-      } finally {
-        if (fos != null) {
-          try {
-            fos.close();
-          } catch (Exception e) {
-            e.printStackTrace();
-          }
+          newranges.add(last);
+          last = range;
         }
       }
-    } else {
-      return null;
     }
+    if (last != null) {
+      newranges.add(last);
+    }
+    return newranges;
   }
 
-  private static String md5(String content) {
+  static String md5(String content) {
+    return md5(content.getBytes());
+  }
+
+  static String md5(byte [] bytes) {
+    return md5(bytes, 0, bytes.length);
+  }
+
+  static String md5(byte [] bytes, int off, int len) {
     try {
       MessageDigest md = MessageDigest.getInstance("MD5");
-      md.update(content.getBytes());
+      md.update(bytes, off, len);
       byte [] digest = md.digest();
       return toHex(digest);
     } catch (Exception e) {
@@ -183,7 +210,7 @@ public class UpgradeHelper {
     }
   }
 
-  private static String md5(File file) {
+  static String md5(File file) {
     byte [] buf = new byte[1024];
     try {
       MessageDigest md = MessageDigest.getInstance("MD5");
@@ -200,7 +227,7 @@ public class UpgradeHelper {
     }
   }
 
-  private static String toHex(byte [] buf) {
+  static String toHex(byte [] buf) {
     StringBuilder builder = new StringBuilder(buf.length * 2);
     for (int i = 0, len = buf.length; i < len; i ++) {
       builder.append(HEX[(buf[i] >> 4) & 0x0F]);
