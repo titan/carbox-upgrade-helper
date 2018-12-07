@@ -1,4 +1,4 @@
-package com.fengchaohuzhu.box.upgrade;
+package box.upgrade;
 
 /**
  * 切片索引条目

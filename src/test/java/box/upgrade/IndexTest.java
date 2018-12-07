@@ -1,4 +1,4 @@
-package com.fengchaohuzhu.box.upgrade;
+package box.upgrade;
 
 import java.util.*;
 

@@ -1,4 +1,4 @@
-package com.fengchaohuzhu.box.upgrade;
+package box.upgrade;
 
 /**
  * 文件内容 Range。根据 HTTP 协议规范 <a
